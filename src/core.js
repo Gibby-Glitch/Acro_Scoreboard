@@ -133,4 +133,25 @@ export function createStore({ onChange, onScore } = {}) {
 }
 
 export const levelsOf = st => st.config?.levels || [];
+
+/* ---------- sessions + what the TV shows ---------- */
+export const sessionOf = L => String(L.session || "1").trim() || "1";
+export function sessionsOf(config) {
+  const out = [];
+  (config?.levels || []).forEach(L => { const s = sessionOf(L); if (!out.includes(s)) out.push(s); });
+  return out.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+// Host-chosen display settings, with sensible defaults.
+export function displaySettings(config) {
+  const d = config?.display || {};
+  const sessions = sessionsOf(config);
+  const session = d.session === "all" || sessions.includes(d.session) ? d.session : (sessions.length > 1 ? sessions[0] : "all");
+  return { session, mode: d.mode === "rotate" ? "rotate" : "side", seconds: Math.min(600, Math.max(5, Number(d.seconds) || 45)) };
+}
+export function sessionLevels(config, session) {
+  const lv = config?.levels || [];
+  if (session === "all") return lv;
+  const pick = lv.filter(L => sessionOf(L) === session);
+  return pick.length ? pick : lv;
+}
 export const displayUrl = () => new URL("/display", location.origin).href;
