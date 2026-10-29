@@ -1,7 +1,7 @@
 // Scoring desk: login, judges' entry, results, setup, and share/cast (QR).
 import "./styles.css";
 import QRCode from "qrcode";
-import { sb, configured, toEmail, createStore, calcLevel, levelsOf, esc, fmt, r3, ord, sid, mkId, evLabel, catKey, toast, confirmBox, displayUrl } from "./core.js";
+import { sb, configured, toEmail, createStore, calcLevel, levelsOf, sessionOf, sessionsOf, displaySettings, sessionLevels, esc, fmt, r3, ord, sid, mkId, evLabel, catKey, toast, confirmBox, displayUrl } from "./core.js";
 
 const app = document.getElementById("app");
 const S = { session: null, st: null, sel: null, entry: "", athlete: "", err: "", saving: false, judgeLevel: null, draft: null, draftDirty: false, loginErr: "", qr: "" };
@@ -81,7 +81,8 @@ function renderJudge() {
   if (!levels().length) return topBar("judge") + `<div class="panel" style="padding:18px">No levels yet. <a href="#setup">Set up the meet</a> first.</div>`;
   if (!S.judgeLevel || !findLevel(S.judgeLevel)) S.judgeLevel = levels()[0].id;
   const L = findLevel(S.judgeLevel); const C = calcLevel(L, S.st.scores);
-  const lt = levels().map(l => `<button data-act="lvl" data-l="${esc(l.id)}" aria-pressed="${l.id === L.id}">${esc(l.name)}</button>`).join("");
+  const multi = sessionsOf(S.st.config).length > 1;
+  const lt = levels().map(l => `<button data-act="lvl" data-l="${esc(l.id)}" aria-pressed="${l.id === L.id}">${esc(l.name)}${multi ? `<small class="sess">S${esc(sessionOf(l))}</small>` : ""}</button>`).join("");
   const head = L.teams.map(t => `<th class="team">${esc(t.name)}</th>`).join("");
   const rows = L.events.map(ev => `<tr><th>${esc(ev.name)}${ev.round || ev.individual ? `<span class="rd">${esc([ev.round, ev.individual ? "individual" : ""].filter(Boolean).join(" · "))}</span>` : ""}</th>${L.teams.map(t => {
     const s = S.st.scores[sid(L.id, t.id, ev.id)];
@@ -216,14 +217,15 @@ function awardsText() {
 }
 
 /* ---------- setup ---------- */
-function blankLevel() { return { id: mkId("level"), name: "New level", teams: [{ id: mkId("team"), name: "Team A" }, { id: mkId("team"), name: "Team B" }], events: [{ id: mkId("acro"), name: "Acro", round: "", award: "Acro", max: 10, individual: false }] }; }
+function blankLevel() { return { id: mkId("level"), name: "New level", session: "1", teams: [{ id: mkId("team"), name: "Team A" }, { id: mkId("team"), name: "Team B" }], events: [{ id: mkId("acro"), name: "Acro", round: "", award: "Acro", max: 10, individual: false }] }; }
 function renderSetup() {
   const nr = notReady(); if (nr) return topBar("setup") + nr;
   if (!S.draft) { S.draft = S.st.config ? JSON.parse(JSON.stringify(S.st.config)) : { name: "Stack It Up", levels: [blankLevel()] }; S.draftDirty = false; }
   const D = S.draft;
   const lv = D.levels.map((L, li) => `<section class="panel setup-lvl">
     <div class="row"><div class="field"><label class="eyebrow" for="ln-${li}">Level name</label><input id="ln-${li}" type="text" data-bind="level" data-li="${li}" data-k="name" value="${esc(L.name)}"></div>
-      <button class="btn sm" data-act="lvup" data-li="${li}" ${li === 0 ? "disabled" : ""}>Move up</button><button class="btn sm danger" data-act="lvdel" data-li="${li}">Delete level</button></div>
+      <div class="field" style="flex:0 0 120px"><label class="eyebrow" for="ls-${li}">Session</label><input id="ls-${li}" type="text" inputmode="numeric" data-bind="level" data-li="${li}" data-k="session" value="${esc(sessionOf(L))}"></div>
+      <button class="btn sm" data-act="lvup" data-li="${li}" ${li === 0 ? "disabled" : ""}>Move up</button><button class="btn sm" data-act="lvdup" data-li="${li}">Duplicate</button><button class="btn sm danger" data-act="lvdel" data-li="${li}">Delete level</button></div>
     <div><div class="eyebrow" style="margin-bottom:6px">Teams</div><div class="team-list">${L.teams.map((t, ti) => `<span class="team-item"><input type="text" id="tn-${li}-${ti}" data-bind="team" data-li="${li}" data-ti="${ti}" value="${esc(t.name)}" aria-label="Team name"><button class="iconbtn" data-act="tdel" data-li="${li}" data-ti="${ti}" aria-label="Remove ${esc(t.name)}">×</button></span>`).join("")}<button class="btn sm" data-act="tadd" data-li="${li}">+ Team</button></div></div>
     <div><div class="eyebrow" style="margin-bottom:6px">Events, in running order</div>
     <div class="scroll-x"><table class="ev"><thead><tr><th>Event</th><th>Round</th><th>Award group</th><th>Max</th><th>Individual</th><th></th></tr></thead><tbody>
@@ -240,7 +242,7 @@ function renderSetup() {
   return `${topBar("setup")}
   <div class="toolbar" style="margin-bottom:14px"><h1 class="h-sec">Meet setup</h1><span class="note" id="dirtyNote">${S.draftDirty ? "Unsaved changes" : "Saved"}</span><span style="margin-left:auto"></span><button class="btn primary" data-act="setsave" ${S.draftDirty ? "" : "disabled"}>Save setup</button></div>
   <div class="panel" style="padding:16px;margin-bottom:16px"><div class="field"><label class="eyebrow" for="mname">Meet name (shown on the big screen)</label><input id="mname" type="text" data-bind="meet" value="${esc(D.name)}"></div>
-  <p class="note" style="margin:10px 0 0">Events that share an <b>award group</b> are added together, so Compulsory Acro and Optional Acro become one Acro award. Mark solo tumbles as <b>individual</b> so judges enter the athlete's name and the award ranks athletes instead of teams. Renaming a team or event keeps its scores; deleting one hides them.</p></div>
+  <p class="note" style="margin:10px 0 0">Events that share an <b>award group</b> are added together, so Compulsory Acro and Optional Acro become one Acro award. Mark solo tumbles as <b>individual</b> so judges enter the athlete's name and the award ranks athletes instead of teams. Levels with the same <b>session</b> number run together and share the TV, for example Levels 1 and 2 in session 1. Renaming a team or event keeps its scores; deleting one hides them.</p></div>
   ${lv}
   <div class="toolbar"><button class="btn" data-act="lvadd">+ Level</button><span style="margin-left:auto"></span><button class="btn danger" data-act="wipe">Clear all scores…</button></div>`;
 }
@@ -249,7 +251,19 @@ function dirty() { S.draftDirty = true; const b = document.querySelector('[data-
 /* ---------- share / cast ---------- */
 function renderShare() {
   const url = displayUrl();
+  const ds = displaySettings(S.st?.config);
+  const sess = sessionsOf(S.st?.config);
+  const names = s => sessionLevels(S.st?.config, s).map(l => l.name).join(" & ");
+  const opt = (act, val, on, label, sub) => `<button class="choice" data-act="${act}" data-v="${esc(val)}" aria-pressed="${on}"><b>${label}</b>${sub ? `<span>${sub}</span>` : ""}</button>`;
+  const tv = S.st?.loaded ? `<section class="panel tvctl">
+      <div><h2 class="h-sec">On the TV now</h2><p class="note" style="margin:4px 0 0">Changes every open display within a second or two, including parents' phones.</p></div>
+      <div><div class="eyebrow">Session</div><div class="choices">${sess.map(s => opt("dsess", s, ds.session === s, `Session ${esc(s)}`, esc(names(s)))).join("")}${opt("dsess", "all", ds.session === "all", "All levels", "")}</div></div>
+      <div><div class="eyebrow">Layout</div><div class="choices">${opt("dmode", "side", ds.mode === "side", "Side by side", "Every level in the session at once")}${opt("dmode", "rotate", ds.mode === "rotate", "One level at a time", "Big, switches automatically")}</div></div>
+      <div ${ds.mode === "rotate" ? "" : "hidden"}><div class="eyebrow">Switch every</div><div class="choices">${[20, 30, 45, 60, 90].map(n => opt("dsec", n, ds.seconds === n, `${n} sec`, "")).join("")}</div>
+        <p class="note" style="margin:6px 0 0">After a score flashes, the display stays on that level for a full turn before switching.</p></div>
+    </section>` : "";
   return `${topBar("share")}
+  ${tv}
   <div class="share">
     <section class="panel">
       <h1 class="h-sec">Live display</h1>
@@ -293,16 +307,26 @@ app.addEventListener("click", async e => {
     case "copy": { const t = awardsText(); try { await navigator.clipboard.writeText(t); toast("Awards copied"); } catch (_) { await confirmBox(`<pre style="white-space:pre-wrap;max-height:50vh;overflow:auto;user-select:all">${esc(t)}</pre>`, "Done", false); } break; }
     case "copylink": try { await navigator.clipboard.writeText(displayUrl()); toast("Link copied"); } catch (_) { toast("Select the link and copy it"); } break;
     case "qrdl": { if (!S.qr) break; const a2 = document.createElement("a"); a2.href = S.qr; a2.download = "live-scores-qr.png"; document.body.appendChild(a2); a2.click(); a2.remove(); break; }
+    case "dsess": case "dmode": case "dsec": {
+      const cur = displaySettings(S.st.config);
+      const next = { ...cur, ...(a === "dsess" ? { session: b.dataset.v } : a === "dmode" ? { mode: b.dataset.v } : { seconds: Number(b.dataset.v) }) };
+      const data = { ...S.st.config, display: next };
+      const prevCfg = S.st.config; S.st.config = data; render();
+      const { error } = await sb.from("meet_config").update({ data, updated_at: new Date().toISOString() }).eq("id", 1);
+      if (error) { S.st.config = prevCfg; render(); toast(`Couldn't change the TV: ${error.message}`); }
+      else toast(a === "dsess" ? (next.session === "all" ? "TV now shows all levels" : `TV now shows session ${next.session}`) : "TV layout updated");
+      break; }
     case "tadd": D.levels[li].teams.push({ id: mkId("team"), name: "New team" }); dirty(); render(); break;
     case "tdel": D.levels[li].teams.splice(+b.dataset.ti, 1); dirty(); render(); break;
     case "evadd": D.levels[li].events.push({ id: mkId("event"), name: "New event", round: "", award: "", max: 10, individual: false }); dirty(); render(); break;
     case "evdel": D.levels[li].events.splice(+b.dataset.ei, 1); dirty(); render(); break;
     case "evup": { const ev = D.levels[li].events, i = +b.dataset.ei; [ev[i - 1], ev[i]] = [ev[i], ev[i - 1]]; dirty(); render(); break; }
     case "lvadd": D.levels.push(blankLevel()); dirty(); render(); break;
+    case "lvdup": { const src = D.levels[li]; const copy = { ...JSON.parse(JSON.stringify(src)), id: mkId(src.name), name: src.name + " copy" }; copy.teams = copy.teams.map(t => ({ ...t, id: mkId(t.name) })); copy.events = copy.events.map(ev => ({ ...ev, id: mkId(ev.name) })); D.levels.splice(li, 0, copy); dirty(); render(); toast("Copied. Rename it and change its teams."); break; }
     case "lvdel": if (await confirmBox(`Delete <b>${esc(D.levels[li].name)}</b> from the meet? Its scores stay stored but won't show.`, "Delete level")) { D.levels.splice(li, 1); dirty(); render(); } break;
     case "lvup": [D.levels[li - 1], D.levels[li]] = [D.levels[li], D.levels[li - 1]]; dirty(); render(); break;
     case "setsave": {
-      const clean = { name: D.name.trim() || "Meet", levels: D.levels.map(L => ({ id: L.id, name: L.name.trim() || "Level", teams: L.teams.map(t => ({ id: t.id, name: t.name.trim() || "Team" })), events: L.events.map(ev => ({ id: ev.id, name: ev.name.trim() || "Event", round: ev.round || "", award: (ev.award || "").trim(), max: Number(ev.max) > 0 ? Number(ev.max) : 10, individual: !!ev.individual })) })) };
+      const clean = { name: D.name.trim() || "Meet", display: S.st.config?.display, levels: D.levels.map(L => ({ id: L.id, name: L.name.trim() || "Level", session: String(L.session || "1").trim() || "1", teams: L.teams.map(t => ({ id: t.id, name: t.name.trim() || "Team" })), events: L.events.map(ev => ({ id: ev.id, name: ev.name.trim() || "Event", round: ev.round || "", award: (ev.award || "").trim(), max: Number(ev.max) > 0 ? Number(ev.max) : 10, individual: !!ev.individual })) })) };
       b.disabled = true;
       const { error } = await sb.from("meet_config").upsert({ id: 1, data: clean, updated_at: new Date().toISOString() });
       if (error) { toast(`Couldn't save setup: ${error.message}`); b.disabled = false; }
